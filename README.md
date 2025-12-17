@@ -1,6 +1,7 @@
 # DataBase Bank Project
 
-Done by: <Your Name>  
+Done by: Omar Hamdy Khalil -Seif Sherif Hasan -Ahmed ElSayed Ghoniem
+ 
 
 ## Project Overview
 
@@ -61,11 +62,3 @@ Adjust the app configuration if it expects a specific database or connection str
 - SeedData.sql — initial data to populate the database
 - app.py — simple Python app to interact with the database
 - db.py — database helper module
-
-## Contributing
-
-Feel free to open issues or submit pull requests. If you update the README, replace `<Your Name>` with your name under the "Done by" heading.
-
-## License
-
-This project does not include a license. Add one if you plan to share publicly.
