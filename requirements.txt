@@ -1,0 +1,9 @@
+# Requirements for DataBase_BankProject
+# Detected third-party packages used by the project
+pyodbc>=4.0
+
+# Notes:
+# - `tkinter` is included with the standard Python distribution on Windows (no pip package).
+# - The project connects to SQL Server via ODBC; ensure the appropriate ODBC driver is installed on the system.
+# - If you prefer MySQL, add `mysql-connector-python` or `PyMySQL` here.
+# - SQLite is built into Python and requires no additional packages.
