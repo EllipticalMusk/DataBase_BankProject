@@ -1,0 +1,9 @@
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Requested custom ignore (as provided)
+theoy --pycahse
+
