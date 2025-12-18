@@ -2,23 +2,9 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import tkinter.font as tkfont
 from db import get_connection
+from data import execute, fetch
+from helpers import make_form, make_table, _format_cell, _make_edit_dialog, delete_selected, tree_sort
 
-# ------------------- HELPERS -------------------
-
-def execute(query, params=()):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(query, params)
-    conn.commit()
-    conn.close()
-
-def fetch(query):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(query)
-    rows = cur.fetchall()
-    conn.close()
-    return rows
 
 # ------------------- UI SETUP -------------------
 
@@ -41,74 +27,8 @@ style.configure('Treeview.Heading', font=('Segoe UI', 10, 'bold'))
 notebook = ttk.Notebook(root)
 notebook.pack(fill="both", expand=True, padx=10, pady=10)
 
-# helpers to create nicer forms and tables
-def make_form(parent, fields):
-    frame = ttk.Frame(parent, padding=(10, 8))
-    frame.pack(fill='x')
-    entries = {}
-    for i, label in enumerate(fields):
-        ttk.Label(frame, text=label).grid(row=i, column=0, sticky='w', padx=(0,8), pady=6)
-        ent = ttk.Entry(frame)
-        ent.grid(row=i, column=1, sticky='we', pady=6)
-        entries[label] = ent
-    frame.columnconfigure(1, weight=1)
-    return entries
-
-def make_table(parent, columns, headings):
-    frame = ttk.Frame(parent, padding=(10, 8))
-    frame.pack(fill='both', expand=True)
-    tree = ttk.Treeview(frame, columns=columns, show='headings', selectmode='browse')
-    for c, h in zip(columns, headings):
-        tree.heading(c, text=h)
-        tree.column(c, anchor='center')
-    vsb = ttk.Scrollbar(frame, orient='vertical', command=tree.yview)
-    tree.configure(yscrollcommand=vsb.set)
-    tree.pack(side='left', fill='both', expand=True)
-    vsb.pack(side='right', fill='y')
-    tree.tag_configure('odd', background='#fbfbfb')
-    tree.tag_configure('even', background='white')
-    return tree
-
-def _format_cell(v):
-    if v is None:
-        return ""
-    try:
-        import datetime
-        if isinstance(v, bytes):
-            return v.decode(errors='ignore')
-        if isinstance(v, datetime.datetime) or isinstance(v, datetime.date):
-            return v.strftime('%Y-%m-%d %H:%M:%S') if hasattr(v, 'hour') else v.strftime('%Y-%m-%d')
-    except Exception:
-        pass
-    if isinstance(v, (list, tuple)):
-        return ", ".join(str(x) for x in v)
-    return str(v)
-
-def _make_edit_dialog(title, fields, values, on_save):
-    win = tk.Toplevel(root)
-    win.title(title)
-    entries = {}
-    for i, key in enumerate(fields):
-        ttk.Label(win, text=key).grid(row=i, column=0, sticky='w', padx=8, pady=6)
-        ent = ttk.Entry(win)
-        ent.grid(row=i, column=1, sticky='we', padx=8, pady=6)
-        ent.insert(0, '' if values[i] is None else str(values[i]))
-        entries[key] = ent
-    win.columnconfigure(1, weight=1)
-    def _save():
-        data = {k: entries[k].get().strip() for k in fields}
-        try:
-            on_save(data)
-            win.destroy()
-        except Exception as e:
-            messagebox.showerror('Edit error', str(e), parent=win)
-    btn_frame = ttk.Frame(win)
-    btn_frame.grid(row=len(fields), column=0, columnspan=2, pady=(4,8))
-    ttk.Button(btn_frame, text='Save', command=_save).pack(side='left', padx=6)
-    ttk.Button(btn_frame, text='Cancel', command=win.destroy).pack(side='left')
-    win.transient(root)
-    win.grab_set()
-    win.wait_window()
+import helpers
+helpers.root = root
 
 # =================== DEPARTMENT ===================
 
@@ -139,15 +59,19 @@ ttk.Button(dept_tab, text="Add", command=add_department).pack(pady=(0,6), padx=1
 
 btn_frame = ttk.Frame(dept_tab)
 btn_frame.pack(anchor='w', padx=10, pady=(0,6))
+
 ttk.Button(btn_frame, text="Edit", command=lambda: edit_department()).pack(side='left')
 ttk.Button(btn_frame, text="Delete", command=lambda: delete_department()).pack(side='left', padx=6)
+ttk.Button(btn_frame, text="Delete Selected", command=lambda: delete_selected(dept_table, 'DELETE FROM Department WHERE DeptCode = ?', 1, False, load_departments)).pack(side='left', padx=6)
 
-dept_table = make_table(dept_tab, ("Code","Desc"), ("Dept Code","Description"))
+dept_table = make_table(dept_tab, ("Code","Desc"), ("Dept Code","Description"), with_select=True)
 
 def load_departments():
     dept_table.delete(*dept_table.get_children())
     for i, r in enumerate(fetch("SELECT DeptCode, Description FROM Department")):
         vals = tuple(_format_cell(x) for x in r)
+        if dept_table['columns'] and dept_table['columns'][0] == '_sel':
+            vals = ('☐',) + vals
         dept_table.insert("", "end", values=vals, tags=('odd' if i%2 else 'even',))
 
 def delete_department():
@@ -155,7 +79,8 @@ def delete_department():
     if not sel:
         messagebox.showwarning('Select row', 'Select a department to delete.')
         return
-    vals = dept_table.item(sel[0], 'values')
+    vals_full = dept_table.item(sel[0], 'values')
+    vals = vals_full[1:]
     code = vals[0]
     if not messagebox.askyesno('Confirm', f'Delete department {code}?'):
         return
@@ -171,7 +96,8 @@ def edit_department():
     if not sel:
         messagebox.showwarning('Select row', 'Select a department to edit.')
         return
-    vals = dept_table.item(sel[0], 'values')
+    vals_full = dept_table.item(sel[0], 'values')
+    vals = vals_full[1:]
     orig_code = vals[0]
     def _save(data):
         new_code = data['Dept Code']
@@ -218,13 +144,16 @@ btn_frame = ttk.Frame(branch_tab)
 btn_frame.pack(anchor='w', padx=10, pady=(0,6))
 ttk.Button(btn_frame, text='Edit', command=lambda: edit_branch()).pack(side='left')
 ttk.Button(btn_frame, text='Delete', command=lambda: delete_branch()).pack(side='left', padx=6)
+ttk.Button(btn_frame, text='Delete Selected', command=lambda: delete_selected(branch_table, 'DELETE FROM Branch WHERE BranchId = ?', 1, True, load_branches)).pack(side='left', padx=6)
 
-branch_table = make_table(branch_tab, ("ID","Code","Email","Phone"), ("ID","Code","Email","Phone"))
+branch_table = make_table(branch_tab, ("ID","Code","Email","Phone"), ("ID","Code","Email","Phone"), with_select=True)
 
 def load_branches():
     branch_table.delete(*branch_table.get_children())
     for i, r in enumerate(fetch("SELECT BranchId, BranchCode, Email, Phone FROM Branch")):
         vals = tuple(_format_cell(x) for x in r)
+        if branch_table['columns'] and branch_table['columns'][0] == '_sel':
+            vals = ('☐',) + vals
         branch_table.insert("", "end", values=vals, tags=('odd' if i%2 else 'even',))
 
 def delete_branch():
@@ -232,7 +161,8 @@ def delete_branch():
     if not sel:
         messagebox.showwarning('Select row', 'Select a branch to delete.')
         return
-    vals = branch_table.item(sel[0], 'values')
+    vals_full = branch_table.item(sel[0], 'values')
+    vals = vals_full[1:]
     bid = vals[0]
     if not messagebox.askyesno('Confirm', f'Delete branch {bid}?'):
         return
@@ -248,7 +178,8 @@ def edit_branch():
     if not sel:
         messagebox.showwarning('Select row', 'Select a branch to edit.')
         return
-    vals = branch_table.item(sel[0], 'values')
+    vals_full = branch_table.item(sel[0], 'values')
+    vals = vals_full[1:]
     bid = vals[0]
     def _save(data):
         code = data['Branch Code']
@@ -301,13 +232,16 @@ btn_frame = ttk.Frame(emp_tab)
 btn_frame.pack(anchor='w', padx=10, pady=(0,6))
 ttk.Button(btn_frame, text='Edit', command=lambda: edit_employee()).pack(side='left')
 ttk.Button(btn_frame, text='Delete', command=lambda: delete_employee()).pack(side='left', padx=6)
+ttk.Button(btn_frame, text='Delete Selected', command=lambda: delete_selected(emp_table, 'DELETE FROM Employee WHERE EmpId = ?', 1, True, load_employees)).pack(side='left', padx=6)
 
-emp_table = make_table(emp_tab, ("ID","Dept","Branch","Email"), ("ID","Dept","Branch","Email"))
+emp_table = make_table(emp_tab, ("ID","Dept","Branch","Email"), ("ID","Dept","Branch","Email"), with_select=True)
 
 def load_employees():
     emp_table.delete(*emp_table.get_children())
     for i, r in enumerate(fetch("SELECT EmpId, DeptCode, BranchId, Email FROM Employee")):
         vals = tuple(_format_cell(x) for x in r)
+        if emp_table['columns'] and emp_table['columns'][0] == '_sel':
+            vals = ('☐',) + vals
         emp_table.insert("", "end", values=vals, tags=('odd' if i%2 else 'even',))
 
 def delete_employee():
@@ -315,7 +249,8 @@ def delete_employee():
     if not sel:
         messagebox.showwarning('Select row', 'Select an employee to delete.')
         return
-    vals = emp_table.item(sel[0], 'values')
+    vals_full = emp_table.item(sel[0], 'values')
+    vals = vals_full[1:]
     eid = vals[0]
     if not messagebox.askyesno('Confirm', f'Delete employee {eid}?'):
         return
@@ -331,7 +266,8 @@ def edit_employee():
     if not sel:
         messagebox.showwarning('Select row', 'Select an employee to edit.')
         return
-    vals = emp_table.item(sel[0], 'values')
+    vals_full = emp_table.item(sel[0], 'values')
+    vals = vals_full[1:]
     eid = vals[0]
     def _save(data):
         dept = data['Dept Code']
@@ -381,13 +317,16 @@ btn_frame = ttk.Frame(cust_tab)
 btn_frame.pack(anchor='w', padx=10, pady=(0,6))
 ttk.Button(btn_frame, text='Edit', command=lambda: edit_customer()).pack(side='left')
 ttk.Button(btn_frame, text='Delete', command=lambda: delete_customer()).pack(side='left', padx=6)
+ttk.Button(btn_frame, text='Delete Selected', command=lambda: delete_selected(cust_table, 'DELETE FROM Customer WHERE CustomerId = ?', 1, True, load_customers)).pack(side='left', padx=6)
 
-cust_table = make_table(cust_tab, ("ID","SSN","Job"), ("ID","SSN","Job"))
+cust_table = make_table(cust_tab, ("ID","SSN","Job"), ("ID","SSN","Job"), with_select=True)
 
 def load_customers():
     cust_table.delete(*cust_table.get_children())
     for i, r in enumerate(fetch("SELECT CustomerId, SSN, Job FROM Customer")):
         vals = tuple(_format_cell(x) for x in r)
+        if cust_table['columns'] and cust_table['columns'][0] == '_sel':
+            vals = ('☐',) + vals
         cust_table.insert("", "end", values=vals, tags=('odd' if i%2 else 'even',))
 
 def delete_customer():
@@ -395,7 +334,8 @@ def delete_customer():
     if not sel:
         messagebox.showwarning('Select row', 'Select a customer to delete.')
         return
-    vals = cust_table.item(sel[0], 'values')
+    vals_full = cust_table.item(sel[0], 'values')
+    vals = vals_full[1:]
     cid = vals[0]
     if not messagebox.askyesno('Confirm', f'Delete customer {cid}?'):
         return
@@ -411,7 +351,8 @@ def edit_customer():
     if not sel:
         messagebox.showwarning('Select row', 'Select a customer to edit.')
         return
-    vals = cust_table.item(sel[0], 'values')
+    vals_full = cust_table.item(sel[0], 'values')
+    vals = vals_full[1:]
     cid = vals[0]
     def _save(data):
         ssn = data['SSN']
@@ -471,13 +412,16 @@ btn_frame = ttk.Frame(acc_tab)
 btn_frame.pack(anchor='w', padx=10, pady=(0,6))
 ttk.Button(btn_frame, text='Edit', command=lambda: edit_account()).pack(side='left')
 ttk.Button(btn_frame, text='Delete', command=lambda: delete_account()).pack(side='left', padx=6)
+ttk.Button(btn_frame, text='Delete Selected', command=lambda: delete_selected(acc_table, 'DELETE FROM Account WHERE AccountId = ?', 1, True, load_accounts)).pack(side='left', padx=6)
 
-acc_table = make_table(acc_tab, ("ID","IBAN","Cust","Branch","Balance"), ("ID","IBAN","Cust","Branch","Balance"))
+acc_table = make_table(acc_tab, ("ID","IBAN","Cust","Branch","Balance"), ("ID","IBAN","Cust","Branch","Balance"), with_select=True)
 
 def load_accounts():
     acc_table.delete(*acc_table.get_children())
     for i, r in enumerate(fetch("SELECT AccountId, IBAN, CustomerId, BranchId, Balance FROM Account")):
         vals = tuple(_format_cell(x) for x in r)
+        if acc_table['columns'] and acc_table['columns'][0] == '_sel':
+            vals = ('☐',) + vals
         acc_table.insert("", "end", values=vals, tags=('odd' if i%2 else 'even',))
 
 def delete_account():
@@ -485,7 +429,8 @@ def delete_account():
     if not sel:
         messagebox.showwarning('Select row', 'Select an account to delete.')
         return
-    vals = acc_table.item(sel[0], 'values')
+    vals_full = acc_table.item(sel[0], 'values')
+    vals = vals_full[1:]
     aid = vals[0]
     if not messagebox.askyesno('Confirm', f'Delete account {aid}?'):
         return
@@ -501,7 +446,8 @@ def edit_account():
     if not sel:
         messagebox.showwarning('Select row', 'Select an account to edit.')
         return
-    vals = acc_table.item(sel[0], 'values')
+    vals_full = acc_table.item(sel[0], 'values')
+    vals = vals_full[1:]
     aid = vals[0]
     def _save(data):
         iban = data['IBAN']
@@ -564,15 +510,19 @@ def add_txn():
 ttk.Button(txn_tab, text="Add", command=add_txn).pack(pady=(0,6), padx=10, anchor='w')
 btn_frame = ttk.Frame(txn_tab)
 btn_frame.pack(anchor='w', padx=10, pady=(0,6))
+
 ttk.Button(btn_frame, text='Edit', command=lambda: edit_txn()).pack(side='left')
 ttk.Button(btn_frame, text='Delete', command=lambda: delete_txn()).pack(side='left', padx=6)
+ttk.Button(btn_frame, text='Delete Selected', command=lambda: delete_selected(txn_table, 'DELETE FROM [Transaction] WHERE TransactionId = ?', 1, True, load_txns)).pack(side='left', padx=6)
 
-txn_table = make_table(txn_tab, ("ID","Acc","Emp","Amount","Date"), ("ID","Acc","Emp","Amount","Date"))
+txn_table = make_table(txn_tab, ("ID","Acc","Emp","Amount","Date"), ("ID","Acc","Emp","Amount","Date"), with_select=True)
 
 def load_txns():
     txn_table.delete(*txn_table.get_children())
     for i, r in enumerate(fetch("SELECT TransactionId, AccountId, EmpId, Amount, TransactionDate FROM [Transaction]")):
         vals = tuple(_format_cell(x) for x in r)
+        if txn_table['columns'] and txn_table['columns'][0] == '_sel':
+            vals = ('☐',) + vals
         txn_table.insert("", "end", values=vals, tags=('odd' if i%2 else 'even',))
 
 def delete_txn():
@@ -580,7 +530,8 @@ def delete_txn():
     if not sel:
         messagebox.showwarning('Select row', 'Select a transaction to delete.')
         return
-    vals = txn_table.item(sel[0], 'values')
+    vals_full = txn_table.item(sel[0], 'values')
+    vals = vals_full[1:]
     tid = vals[0]
     if not messagebox.askyesno('Confirm', f'Delete transaction {tid}?'):
         return
@@ -596,7 +547,8 @@ def edit_txn():
     if not sel:
         messagebox.showwarning('Select row', 'Select a transaction to edit.')
         return
-    vals = txn_table.item(sel[0], 'values')
+    vals_full = txn_table.item(sel[0], 'values')
+    vals = vals_full[1:]
     tid = vals[0]
     def _save(data):
         acc = data['Account ID']

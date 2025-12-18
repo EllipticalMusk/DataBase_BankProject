@@ -55,10 +55,3 @@ Run the minimal app (example):
 	python app.py
 
 Adjust the app configuration if it expects a specific database or connection string.
-
-## Files
-
-- Schema.sql — database schema creation scripts
-- SeedData.sql — initial data to populate the database
-- app.py — simple Python app to interact with the database
-- db.py — database helper module
