@@ -1,6 +1,7 @@
 # Requirements for DataBase_BankProject
 # Detected third-party packages used by the project
 pyodbc>=4.0
+ttkbootstrap>=1.6.0
 
 # Notes:
 # - `tkinter` is included with the standard Python distribution on Windows (no pip package).
