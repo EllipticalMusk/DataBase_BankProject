@@ -1,5 +1,3 @@
-/* Created by GitHub Copilot in SSMS - review carefully before executing */
-
 SET XACT_ABORT ON;
 BEGIN TRANSACTION;
 
